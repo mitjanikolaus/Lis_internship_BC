@@ -1,4 +1,4 @@
-data_csv = "Annotations-adults/AD/AA-AN-DL-annotation.csv"
+data_csv = "../Annotations-adults/AD/AA-AN-DL-annotation.csv"
 
 import pandas as pd
 import datetime
@@ -34,8 +34,10 @@ def extract_df_times_csv_file(data_csv,samplerate,A):
     df_r.to_csv('resp.csv') 
     df_f = pd.DataFrame(l_feedback) 
     df_f.to_csv('feedback.csv') 
-    df_f.columns =['onset', 'end', 'duration', 'label']
-    df_r.columns =['onset', 'end', 'duration', 'label']
+    if l_feedback != []:     
+        df_f.columns =['onset', 'end', 'duration', 'label']
+    if l_resp != []:
+        df_r.columns =['onset', 'end', 'duration', 'label']
     return df_f,df_r
         
         
