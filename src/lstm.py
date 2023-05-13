@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Apr 18 10:32:55 2023
+Created on Wed Apr 26 11:42:31 2023
 
-@author: Nina Gregorio
-
+@author: Lenovo
 """
 
 import torch
@@ -14,6 +13,70 @@ import torchaudio
 import pandas as pd
 import torch.nn as nn
 import torch.nn.functional as F
+import os
+
+
+
+
+
+class UrbanSoundDataset(Dataset):
+    # Wrapper for the UrbanSound8K dataset
+    # Argument List
+    # path to the UrbanSound8K csv file
+    # path to the UrbanSound8K audio files
+    # list of folders to use in the dataset
+
+    
+    def __init__(self, csv_filename, path_cut,folderList):
+        csvData = pd.read_csv(path_cut+csv_filename)
+        # initialize lists to hold file names, labels, and folder numbers
+        self.file_names = []
+        self.labels = []
+        self.folders = []
+        # loop through the csv entries and only add entries from folders in the folder list
+        for i in range(0, len(csvData)):
+            if csvData.iloc[i, 4] in folderList:
+                self.file_names.append(csvData.iloc[i, 1])
+                self.labels.append(csvData.iloc[i, 2])
+                self.folders.append(csvData.iloc[i, 4])
+        self.path_cut = path_cut
+        self.max = csvData['nbframes'].max()
+        self.folderList = folderList
+        
+        
+
+    def __getitem__(self, index):
+        # format the file path and load the file
+        max_frames = self.max
+        path = self.path_cut + str(self.folders[index]) + "/" +self.file_names[index]
+        soundData, sample_rate = torchaudio.load(path)
+        #soundData = torch.mean(sound, dim=0, keepdim=True)
+        tempData = torch.zeros([1, max_frames])  # tempData accounts for audio clips that are too short
+        
+        
+        if soundData.numel() < max_frames:
+            tempData[:, :soundData.numel()] = soundData
+        else:
+            tempData = soundData[:, :max_frames]
+
+        soundData = tempData
+
+        mel_specgram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate)(soundData)  # (channel, n_mels, time)
+        mel_specgram_norm = (mel_specgram - mel_specgram.mean()) / mel_specgram.std()
+        mfcc = torchaudio.transforms.MFCC(sample_rate=sample_rate)(soundData)  # (channel, n_mfcc, time)
+        mfcc_norm = (mfcc - mfcc.mean()) / mfcc.std()
+        # spectogram = torchaudio.transforms.Spectrogram(sample_rate=sample_rate)(soundData)
+        #feature = torch.cat([mel_specgram, mfcc], axis=1)
+        feature = mfcc
+        return feature[0].permute(1, 0), self.labels[index]
+
+    def __len__(self):
+        return len(self.file_names)
+    
+    
+
+
+
 
 
 class AudioLSTM(nn.Module):
@@ -47,15 +110,13 @@ class AudioLSTM(nn.Module):
     def init_hidden(self, batch_size):
         weight = next(self.parameters()).data
 
-        hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda(),
-                  weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda())
+        hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(),
+                  weight.new(self.n_layers, batch_size, self.n_hidden).zero_())
         return hidden
     
-    
-
-
-
+        
 def train(model, epoch):
+    
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data = data.to(device)
@@ -73,3 +134,63 @@ def train(model, epoch):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss))
+            
+            
+def test(model, epoch):
+    model.eval()
+    correct = 0
+    y_pred, y_target = [], []
+    for data, target in test_loader:
+        data = data.to(device)
+        target = target.to(device)
+        
+        output, hidden_state = model(data, model.init_hidden(hyperparameters["batch_size"]))
+        
+        pred = torch.max(output, dim=1).indices
+        correct += pred.eq(target).cpu().sum().item()
+        y_pred = y_pred + pred.tolist()
+        y_target = y_target + target.tolist()
+    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'.format(
+        correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
+    
+hyperparameters = {"lr": 0.01, "weight_decay": 0.0001, "batch_size": 40, "in_feature": 168, "out_feature": 2}
+
+device = torch.device("cpu")
+print(device)
+
+#csv_path = '/kaggle/input/urbansound8k/UrbanSound8K.csv'
+#file_path = '/kaggle/input/urbansound8k/'
+
+path_cut_before = "../data/cut_wav_with_data_before_onset/"
+csv_filename = "filenames_labels_nbframes.csv"
+l_folders = [elem for elem in os.listdir(path_cut_before) if os.path.isdir(path_cut_before+elem)]
+
+train_set = UrbanSoundDataset(csv_filename, path_cut_before, l_folders[:-1] )
+test_set = UrbanSoundDataset(csv_filename, path_cut_before,l_folders[-1])
+
+#print("Train set size: " + str(len(train_set)))
+#print("Test set size: " + str(len(test_set)))
+
+
+
+
+kwargs = {}  # needed for using datasets on gpu
+
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
+
+model = AudioLSTM(n_feature=hyperparameters["in_feature"], out_feature=hyperparameters["out_feature"])
+model.to(device)
+print(model)
+
+optimizer = optim.Adam(model.parameters(), lr=hyperparameters['lr'], weight_decay=hyperparameters['weight_decay'])
+# scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+criterion = nn.CrossEntropyLoss()
+clip = 5  # gradient clipping
+
+log_interval = 10
+for epoch in range(1, 41):
+    # scheduler.step()
+    train(model, epoch)
+    test(model, epoch)
