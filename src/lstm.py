@@ -34,7 +34,7 @@ class UrbanSoundDataset(Dataset):
         self.labels = []
         self.folders = []
         # loop through the csv entries and only add entries from folders in the folder list
-        for i in range(0, len(csvData)):
+        for i in range(0, len(csvData)): 
             if csvData.iloc[i, 4] in folderList:
                 self.file_names.append(csvData.iloc[i, 1])
                 self.labels.append(csvData.iloc[i, 2])
@@ -47,29 +47,28 @@ class UrbanSoundDataset(Dataset):
 
     def __getitem__(self, index):
         # format the file path and load the file
-        max_frames = self.max
+        max_frames = int(self.max/150)
         path = self.path_cut + str(self.folders[index]) + "/" +self.file_names[index]
         soundData, sample_rate = torchaudio.load(path)
+        #print(path,soundData.shape)
+        mfcc = torchaudio.transforms.MFCC(sample_rate=sample_rate)(soundData)
+        mfcc_temporal_size = mfcc.shape[2]
         #soundData = torch.mean(sound, dim=0, keepdim=True)
-        tempData = torch.zeros([1, max_frames])  # tempData accounts for audio clips that are too short
+        padded_mfcc = torch.zeros([1,40, max_frames])  # tempData accounts for audio clips that are too short
         
+       
+        padded_mfcc[:,:, :mfcc_temporal_size] = mfcc
         
-        if soundData.numel() < max_frames:
-            tempData[:, :soundData.numel()] = soundData
-        else:
-            tempData = soundData[:, :max_frames]
 
-        soundData = tempData
-
-        mel_specgram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate)(soundData)  # (channel, n_mels, time)
-        mel_specgram_norm = (mel_specgram - mel_specgram.mean()) / mel_specgram.std()
-        mfcc = torchaudio.transforms.MFCC(sample_rate=sample_rate)(soundData)  # (channel, n_mfcc, time)
-        mfcc_norm = (mfcc - mfcc.mean()) / mfcc.std()
+        #mel_specgram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate)(soundData)  # (channel, n_mels, time)
+        #mel_specgram_norm = (mel_specgram - mel_specgram.mean()) / mel_specgram.std()
+        #mfcc = torchaudio.transforms.MFCC(sample_rate=sample_rate)(soundData)  # (channel, n_mfcc, time)
+        #mfcc_norm = (mfcc - mfcc.mean()) / mfcc.std()
         # spectogram = torchaudio.transforms.Spectrogram(sample_rate=sample_rate)(soundData)
         #feature = torch.cat([mel_specgram, mfcc], axis=1)
-        feature = mfcc
-        return feature[0].permute(1, 0), self.labels[index]
-
+        #feature = mfcc
+        
+        return padded_mfcc[0].permute(1, 0), self.labels[index], mfcc_temporal_size
     def __len__(self):
         return len(self.file_names)
     
@@ -94,15 +93,24 @@ class AudioLSTM(nn.Module):
 
         self.fc = nn.Linear(n_hidden, out_feature)
 
-    def forward(self, x, hidden):
+    def forward(self, x, seq_len, hidden):
         # x.shape (batch, seq_len, n_features)
         l_out, l_hidden = self.lstm(x, hidden)
+        
 
         # out.shape (batch, seq_len, n_hidden*direction)
         out = self.dropout(l_out)
-
+        
+        #print(seq_len)
+        #print (out[:, -1, :].shape)
+        #print (out[range(x.shape[0]), seq_len-1].shape)
+        
         # out.shape (batch, out_feature)
-        out = self.fc(out[:, -1, :])
+        #out = self.fc(out[:, -1, :])
+        
+        #new:
+        last_hidden_states = out[range(x.shape[0]), seq_len-1]
+        out = self.fc(last_hidden_states)
 
         # return the final output and the hidden state
         return out, l_hidden
@@ -118,33 +126,34 @@ class AudioLSTM(nn.Module):
 def train(model, epoch):
     
     model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target, seq_len) in enumerate(train_loader):
+        #print(target)
         data = data.to(device)
         target = target.to(device)
 
         model.zero_grad()
-        output, hidden_state = model(data, model.init_hidden(hyperparameters["batch_size"]))
+        output, hidden_state = model(data, seq_len,model.init_hidden(hyperparameters["batch_size"]))
         
         loss = criterion(output, target)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
 
-        if batch_idx % log_interval == 0: #print training stats
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss))
+        #if batch_idx % log_interval == 0: #print training stats
+        print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            epoch, batch_idx * len(data), len(train_loader.dataset),
+            100. * batch_idx / len(train_loader), loss))
             
             
 def test(model, epoch):
     model.eval()
     correct = 0
     y_pred, y_target = [], []
-    for data, target in test_loader:
+    for data, target, seq_len in test_loader:
         data = data.to(device)
         target = target.to(device)
         
-        output, hidden_state = model(data, model.init_hidden(hyperparameters["batch_size"]))
+        output, hidden_state = model(data, seq_len, model.init_hidden(hyperparameters["batch_size"]))
         
         pred = torch.max(output, dim=1).indices
         correct += pred.eq(target).cpu().sum().item()
@@ -154,7 +163,7 @@ def test(model, epoch):
         correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
     
-hyperparameters = {"lr": 0.01, "weight_decay": 0.0001, "batch_size": 40, "in_feature": 168, "out_feature": 2}
+hyperparameters = {"lr": 0.01, "weight_decay": 0.0001, "batch_size": 20, "in_feature": 40, "out_feature": 2}
 
 device = torch.device("cpu")
 print(device)
@@ -194,3 +203,33 @@ for epoch in range(1, 41):
     # scheduler.step()
     train(model, epoch)
     test(model, epoch)
+    
+    
+    
+ #%%
+path1 = path_cut_before+"AD/AA-AN-DL-AN_0_response.wav"
+path2 = path_cut_before+"AD/AA-AN-DL-AN_3_response.wav"
+ 
+soundData1, sample_rate1 = torchaudio.load(path1)
+mfcc1 = torchaudio.transforms.MFCC(sample_rate=sample_rate1)(soundData1)   
+soundData2, sample_rate2 = torchaudio.load(path2)
+mfcc2 = torchaudio.transforms.MFCC(sample_rate=sample_rate2)(soundData2) 
+    
+    
+    #%%
+l = os.listdir("../data/cut_wav_with_data_before_onset/")
+for elem in l[3:]:
+    print(elem)
+    ll = os.listdir("../data/cut_wav_with_data_before_onset/"+elem+'/')
+    for e in ll:
+        
+        soundData, sample_rate = torchaudio.load("../data/cut_wav_with_data_before_onset/"+elem+'/'+e)
+        if soundData.shape[1] < 1000:
+            print(e)
+    
+    
+    
+    
+    
+    
+    
