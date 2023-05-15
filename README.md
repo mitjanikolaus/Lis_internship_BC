@@ -1,8 +1,8 @@
 # Lis_internship_BC
 In order to run the code, you have to have the following directory structure:
-Adult-rec and Annotations-children folrders from amubox (LIS laboratory) in a “data” folder
-“load_csv_file.py” and “lstm.py” in “src” folder
-Create an empty folder called “cut_wav_with_data_before_onset” in data.
+- Adult-rec and Annotations-children folrders from amubox (LIS laboratory) in a “data” folder
+- “load_csv_file.py” and “lstm.py” in “src” folder
+- Create an empty folder called “cut_wav_with_data_before_onset” in data.
 
 run load_csv_file.py to:
 - to convert m4a into wav (in Adukt-rec folder)
