@@ -13,8 +13,27 @@ import numpy as np
 import os
 import contextlib
 import torchaudio
-l_feedback = []
-l_resp = []
+import csv
+
+
+def convert_to_wav(path_m4a):
+    l_direct = os.listdir(path_m4a)
+    for direct in l_direct:
+        #os.mkdir(path_wav+direct)
+        l_files_m4a = os.listdir(path_m4a+direct)
+        for file in l_files_m4a:
+            if 'm4a' in file:
+                if len(file) == 15:
+                    track = AudioSegment.from_file(path_m4a+'/'+direct+'/'+file,  format='m4a')
+                    file_handle = track.export(path_m4a+direct+'/'+file[:-3]+'wav', format='wav')
+
+def create_empty_csv(csv_path,csv_name):
+    column_names = ["filename","label","nbframes","folder"] 
+
+    with open(csv_path+csv_name, 'w') as f:
+    # using csv.writer method from CSV package
+        write = csv.writer(f)
+        write.writerow(column_names)
 
 def return_sec(time_string):    
     x = time.strptime(time_string.split('.')[0],'%H:%M:%S')
@@ -54,8 +73,9 @@ def cut_one_wav(df,wav,backchannel_type,direct,folder,direct_cut,nb_frames_befor
     for i in range (s):
         onset = int(get_onset(df,i))-nb_frames_before_onset
         offset = int(get_end(df,i))
-        newAudio = data[onset:offset]
-        write(direct_cut+'/'+folder+'/'+wav[:-4]+'_'+str(i)+'_'+backchannel_type+".wav", samplerate, newAudio.astype(np.int16))
+        if onset+100<offset:
+            newAudio = data[onset:offset]
+            write(direct_cut+'/'+folder+'/'+wav[:-4]+'_'+str(i)+'_'+backchannel_type+".wav", samplerate, newAudio.astype(np.int16))
     
 def cut_wav_file(data_csv,wav1,wav2,direct,folder,direct_cut,nb_frames_before_onset):
     samplerate, data = wavfile.read(direct+folder+wav1)
@@ -86,6 +106,7 @@ def search_extention_in_given_folder (folder,path,extention):
 def cut_all_wav(path_rec,path_annot,path_cut,nb_frames_before_onset):
     l_folder = os.listdir(path_rec) 
     for folder in l_folder:
+        os.mkdir(path_cut+folder)
         folder = folder+'/'
         [wav1,wav2] = search_extention_in_given_folder (folder,path_rec,".wav")
         [csv_file] = search_extention_in_given_folder (folder,path_annot,".csv")
@@ -94,10 +115,10 @@ def cut_all_wav(path_rec,path_annot,path_cut,nb_frames_before_onset):
 
 def create_csv_from_cut_wav(path_cut,nb_frames_before_onset):
     #print("TO DO: verify if max supposed to be is max frames or max duration")
-    l_folders = os.listdir(path_cut_before)
+    l_folders = os.listdir(path_cut)
     l_csv = []
     for folder in l_folders:
-        l_wav = os.listdir(path_cut+'/'+folder)
+        l_wav = os.listdir(path_cut+folder)
         
         for elem in l_wav:
             if "response" in elem:
@@ -107,48 +128,25 @@ def create_csv_from_cut_wav(path_cut,nb_frames_before_onset):
                 
             with contextlib.closing(wave.open(path_cut+'/'+folder+'/'+elem,'r')) as f:
                 frames = f.getnframes()+nb_frames_before_onset
-                
-            l_csv.append([elem,label,frames,folder])
+            if f.getnframes() > 1000:
+                l_csv.append([elem,label,frames,folder])
         
     df = pd.DataFrame(l_csv) 
     df.columns =['filename', 'label', 'nbframes','folder']
-    df.to_csv(path_cut_before+'filenames_labels_nbframes.csv') 
+    df.to_csv(path_cut+'filenames_labels_nbframes.csv') 
     return df
         
 
+
+
+
 path_rec = "../data/Adult-rec/"
 path_annot = "../data/Annotations-adults/"
-folder = 'AD/'
-path_cut_before = "../data/cut_wav_with_data_before_onset/"
-wav1 = "AA-AN-DL-AN.wav"
-wav2 = "AA-AN-DL-DL.wav"
-data_csv = "../data/Annotations-adults/AD/AA-AN-DL-annotation.csv"
-l_folders = os.listdir(path_cut_before)
-
-
-mini_wav = "AA-AN-DL-AN_0_feedback.wav"
-
-
-
-#data = pd.read_csv(path_cut_before+"filenames_labels_nbframes.csv")
-
-
+path_cut = "../data/cut_wav_with_data_before_onset/"
 nb_frames_before_onset = 100000
-df = create_csv_from_cut_wav(path_cut_before,nb_frames_before_onset)
 
-#cut_all_wav(path_rec,path_annot,path_cut_before,nb_frames_before_onset)
 
-'''test of mfcc with 1s segment'''
-samplerate,data = wavfile.read("../data/Adult-rec/AD/AA-AN-DL-AN.wav")
-#data,samplerate = torchaudio.load("../data/Adult-rec/AD/AA-AN-DL-AN.wav")
-onset = 10
-offset = 32010
-newAudio = data[onset:offset]
-write("../test.wav", samplerate, newAudio.astype(np.int16))
-#tensor = torch.tensor(newAudio)
-
-    #write(direct_cut+'/'+folder+'/'+wav[:-4]+'_'+str(i)+'_'+backchannel_type+".wav", samplerate, newAudio.astype(np.int16))
-soundData, sample_rate = torchaudio.load("../test.wav")
-mfcc = torchaudio.transforms.MFCC(sample_rate=sample_rate)(soundData)  # (channel, n_mfcc, time)
-
+convert_to_wav("../data/Adult-rec/")
+cut_all_wav(path_rec,path_annot,path_cut,nb_frames_before_onset)
+df = create_csv_from_cut_wav(path_cut,nb_frames_before_onset)
 

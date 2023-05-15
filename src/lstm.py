@@ -206,30 +206,6 @@ for epoch in range(1, 41):
     
     
     
- #%%
-path1 = path_cut_before+"AD/AA-AN-DL-AN_0_response.wav"
-path2 = path_cut_before+"AD/AA-AN-DL-AN_3_response.wav"
- 
-soundData1, sample_rate1 = torchaudio.load(path1)
-mfcc1 = torchaudio.transforms.MFCC(sample_rate=sample_rate1)(soundData1)   
-soundData2, sample_rate2 = torchaudio.load(path2)
-mfcc2 = torchaudio.transforms.MFCC(sample_rate=sample_rate2)(soundData2) 
-    
-    
-    #%%
-l = os.listdir("../data/cut_wav_with_data_before_onset/")
-for elem in l[3:]:
-    print(elem)
-    ll = os.listdir("../data/cut_wav_with_data_before_onset/"+elem+'/')
-    for e in ll:
-        
-        soundData, sample_rate = torchaudio.load("../data/cut_wav_with_data_before_onset/"+elem+'/'+e)
-        if soundData.shape[1] < 1000:
-            print(e)
-    
-    
-    
-    
-    
+
     
     
