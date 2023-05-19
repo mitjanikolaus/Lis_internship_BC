@@ -109,6 +109,8 @@ def cut_all_wav(path_rec,path_annot,path_cut,nb_frames_before_onset):
         os.mkdir(path_cut+folder)
         folder = folder+'/'
         [wav1,wav2] = search_extention_in_given_folder (folder,path_rec,".wav")
+        adult_1 = wav1[3:5]
+        wav1, wav2 = [wav1, wav2] if wav1[-6:-4] == adult_1 else [wav2, wav1]
         [csv_file] = search_extention_in_given_folder (folder,path_annot,".csv")
         data_csv = path_annot+folder+csv_file
         cut_wav_file(data_csv,wav1,wav2,path_rec,folder,path_cut,nb_frames_before_onset)
